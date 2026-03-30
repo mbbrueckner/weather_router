@@ -4,7 +4,7 @@ This module provides functionality to parse GPX files and extract route points, 
 """
 
 __author__ = "mbbrueckner"
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from datetime import datetime
 from dataclasses import dataclass
@@ -12,8 +12,9 @@ from dataclasses import dataclass
 import gpxpy
 import math
 
-# Earth radius in meters
 EARTH_RADIUS = 6_371_000
+MAX_CLUSTER_DISTANCE_M = 7_000
+MAX_BEARING_DIFF_DEG = 20.0
 
 @dataclass
 class RoutePoint:
@@ -131,14 +132,156 @@ def split_into_segments(points: list[RoutePoint]) -> list[Segment]:
     return segments
 
 
+@dataclass
+class SegmentCluster:
+    """A Cluster of consecutive Segments with similar bearing, representing a straight portion of the route.
+
+    Attributes:
+        segments: List of Segments in the cluster.
+        mean_bearing: Average bearing of the segments in degrees (0–360).
+        total_distance_km: Total distance of the cluster in kilometers.
+        representative_lat: Latitude of a representative point for the cluster (e.g., start of first segment).
+        arrival_time: Timestamp of arrival at the representative point, if available.
+    """
+    segments: list[Segment]       
+    mean_bearing: float           
+    total_distance_m: float      
+    representative_point:RoutePoint        
+
+
+def cluster_segments(segments: list[Segment]) -> list[SegmentCluster]:
+    """Group consecutive segments into clusters based on bearing similarity and distance.
+
+    A new cluster is started whenever the accumulated distance exceeds
+    MAX_CLUSTER_DISTANCE_M or the bearing difference to the current cluster
+    exceeds MAX_BEARING_DIFF_DEG.
+
+    Args:
+        segments: Ordered list of Segments to cluster.
+
+    Returns:
+        List of SegmentClusters representing straight portions of the route.
+    """
+    clusters = []
+    current_cluster_segments: list[Segment] = []
+    current_cluster_length: float = 0.0
+    current_cluster_bearing: float = 0.0
+
+    for seg in segments:
+        segment_length = seg.distance_m
+        segment_bearing = seg.bearing_deg
+
+        if not current_cluster_segments:
+            current_cluster_segments.append(seg)
+            current_cluster_length = segment_length
+            current_cluster_bearing = segment_bearing
+
+        else:
+            if current_cluster_length + segment_length < MAX_CLUSTER_DISTANCE_M:
+                bearing_difference = _unsigned_bearing_difference(current_cluster_bearing, segment_bearing)
+                if bearing_difference < MAX_BEARING_DIFF_DEG:
+                    current_cluster_segments.append(seg)
+                    current_cluster_length += segment_length
+                    continue
+            clusters.append(_build_cluster(current_cluster_segments, current_cluster_length))
+            current_cluster_segments = [seg]
+            current_cluster_length = segment_length
+            current_cluster_bearing = segment_bearing
+
+    if current_cluster_segments:
+        clusters.append(_build_cluster(current_cluster_segments, current_cluster_length))
+
+    return clusters
+             
+
+
+
+def _build_cluster(segments: list[Segment], total_distance: float) -> SegmentCluster:
+    """Build a SegmentCluster from a list of segments.
+
+    The representative point is the geographic midpoint of the middle segment.
+    The mean bearing is computed as a circular mean to correctly handle the
+    0°/360° wrap-around.
+
+    Args:
+        segments: Non-empty list of Segments belonging to this cluster.
+        total_distance: Accumulated distance of all segments in meters.
+
+    Returns:
+        A SegmentCluster representing the group.
+    """
+    num_segments = len(segments)
+
+    middle_segment = segments[num_segments // 2]
+
+    start_elev = middle_segment.start.elevation_m
+    end_elev = middle_segment.end.elevation_m
+
+    start_ts = middle_segment.start.timestamp
+    end_ts = middle_segment.end.timestamp
+    timestamp = start_ts + (end_ts - start_ts) / 2 if (start_ts is not None and end_ts is not None) else start_ts
+
+    representative_point = RoutePoint(
+        lat=(middle_segment.start.lat + middle_segment.end.lat) / 2,
+        lon=(middle_segment.start.lon + middle_segment.end.lon) / 2,
+        elevation_m=(start_elev + end_elev) / 2 if (start_elev is not None and end_elev is not None) else None,
+        timestamp=timestamp,
+    )
+
+    sin_sum = sum(math.sin(math.radians(seg.bearing_deg)) for seg in segments)
+    cos_sum = sum(math.cos(math.radians(seg.bearing_deg)) for seg in segments)
+    mean_bearing = math.degrees(math.atan2(sin_sum, cos_sum)) % 360
+
+    return SegmentCluster(
+        segments=segments,
+        mean_bearing=mean_bearing,
+        total_distance_m=total_distance,
+        representative_point=representative_point,
+    )
+
+            
+
+
+def _signed_bearing_difference(b1: float, b2: float) -> float:
+    """ Calculate the signed difference between two bearings
+
+    Args:
+        b1: first bearing
+        b2: second bearing
+    
+    Returns:
+        Signed difference between b1 and b2
+    """
+    diff = (b2 - b1) % 360
+    if diff > 180:
+        diff -= 360
+    return diff
+
+def _unsigned_bearing_difference(b1 :float, b2:float) -> float:
+    """ Calculate the unsigned difference between two bearings
+
+    Args:
+        b1: first bearing
+        b2: second bearing
+    
+    Returns:
+        Unsigned difference between b1 and b2
+    """
+    diff = abs(b1 - b2) % 360
+    return min(diff, 360 - diff)
+
+
 if __name__ == "__main__":
     from pathlib import Path
     sample_path = Path(__file__).parent.parent.parent / "data" / "sample.gpx"
     with open(sample_path, "rb") as f:
         points = parse_gpx(f.read())
     segments = split_into_segments(points)
+    clusters = cluster_segments(segments)
+
     print(f" loaded {len(points)} Points")
-    print(f"Start: {points[0]}")
-    print(f"End:  {points[-1]}")
     print(f"{len(segments)} Segments")
-    print(f"First Segment: {segments[0]}")
+    print(f"{len(clusters)} Segmentclusters")
+    # print(f"Start: {points[0]}")
+    # print(f"End:  {points[-1]}")
+    # print(f"First Segment: {segments[0]}")
