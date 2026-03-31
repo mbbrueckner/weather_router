@@ -75,6 +75,7 @@ class SegmentCluster:
 
 
 # --- Main Functions ---
+
 def parse_gpx(file_content: bytes) -> list[RoutePoint]:
     """Parse a GPX file and extract an ordered list of descriptive RoutePoints.
 
@@ -103,6 +104,7 @@ def parse_gpx(file_content: bytes) -> list[RoutePoint]:
                     )
                   )
     return _simplify(points)
+
 
 
 def cluster_segments(segments: list[Segment]) -> list[SegmentCluster]:
@@ -158,6 +160,33 @@ def cluster_segments(segments: list[Segment]) -> list[SegmentCluster]:
         clusters.append(_build_cluster(current_cluster_segments, current_cluster_length, current_cluster_bearing))
 
     return clusters
+
+
+
+def write_gpx(points: list[RoutePoint]) -> bytes:
+    """Serialize a list of RoutePoints to GPX file content.
+
+    Args:
+        points: Ordered list of RoutePoints representing a route.
+
+    Returns:
+        GPX file content as bytes.
+    """
+    gpx = gpxpy.gpx.GPX()
+    track = gpxpy.gpx.GPXTrack()
+    gpx.tracks.append(track)
+    segment = gpxpy.gpx.GPXTrackSegment()
+    track.segments.append(segment)
+    for p in points:
+        segment.points.append(
+            gpxpy.gpx.GPXTrackPoint(
+                latitude=p.lat,
+                longitude=p.lon,
+                elevation=p.elevation_m,
+                time=p.timestamp,
+            )
+        )
+    return gpx.to_xml().encode()
 
 # --- Helper Functions ---
 
@@ -315,8 +344,18 @@ if __name__ == "__main__":
     print(f"loaded {len(points)} Points")
     print(f"{len(segments)} Segments")
     print(f"{len(clusters)} Segment clusters")
-    for i, cluster in enumerate(clusters):
-        print(f"Cluster {i:2d}: {cluster.mean_bearing:6.1f}°  {cluster.total_distance_m:6.0f}m")
+
+    
+    cluster_points = [cluster.representative_point for cluster in clusters]
+    cluster_points.insert(0, points[0])  # Add original start point
+    cluster_points.append(points[-1])    # Add original end point
+    out_path = sample_path.parent / "clusters.gpx"
+    out_path.write_bytes(write_gpx(cluster_points))
+    print(f"wrote {out_path}")
+
+
+    # for i, cluster in enumerate(clusters):
+    #     print(f"Cluster {i:2d}: {cluster.mean_bearing:6.1f}°  {cluster.total_distance_m:6.0f}m") 
     # print(f"Start: {points[0]}")
     # print(f"End:  {points[-1]}")
     # print(f"First Segment: {segments[0]}")
