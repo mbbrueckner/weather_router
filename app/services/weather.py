@@ -5,7 +5,7 @@ route points using the Open-Meteo API, returning the data as a pandas DataFrame.
 """
 
 __author__ = "mbbrueckner"
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 from datetime import date
 from app.models import RoutePoint
@@ -22,7 +22,6 @@ DEFAULT_MINUTELY_15 = [
     "wind_gusts_10m",
     "precipitation",
 ]
-
 
 def get_weather(
     coords: list[RoutePoint],
