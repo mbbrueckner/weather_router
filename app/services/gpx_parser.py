@@ -279,30 +279,3 @@ def _unsigned_bearing_difference(b1 :float, b2:float) -> float:
     """
     diff = abs(b1 - b2) % 360
     return min(diff, 360 - diff)
-
-
-if __name__ == "__main__":
-    from pathlib import Path
-    sample_path = Path(__file__).parent.parent.parent / "data" / "sample.gpx"
-    with open(sample_path, "rb") as f:
-        points = parse_gpx(f.read())
-    segments = split_into_segments(points)
-    clusters = cluster_segments(segments)
-    print(f"loaded {len(points)} Points")
-    print(f"{len(segments)} Segments")
-    print(f"{len(clusters)} Segment clusters")
-
-    
-    cluster_points = [cluster.representative_point for cluster in clusters]
-    cluster_points.insert(0, points[0])  # Add original start point
-    cluster_points.append(points[-1])    # Add original end point
-    out_path = sample_path.parent / "clusters.gpx"
-    out_path.write_bytes(write_gpx(cluster_points))
-    print(f"wrote {out_path}")
-
-
-    # for i, cluster in enumerate(clusters):
-    #     print(f"Cluster {i:2d}: {cluster.mean_bearing:6.1f}°  {cluster.total_distance_m:6.0f}m") 
-    # print(f"Start: {points[0]}")
-    # print(f"End:  {points[-1]}")
-    # print(f"First Segment: {segments[0]}")
