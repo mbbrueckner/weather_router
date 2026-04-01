@@ -7,10 +7,12 @@ route points using the Open-Meteo API, returning the data as a pandas DataFrame.
 __author__ = "mbbrueckner"
 __version__ = "0.1.0"
 
-import openmeteo_requests
-import pandas as pd
 from datetime import date
-from app.gpx_parser import RoutePoint
+from app.models import RoutePoint
+
+import openmeteo_requests
+import openmeteo_sdk.WeatherApiResponse as WeatherApiResponse
+import pandas as pd
 
 API_URL = "https://api.open-meteo.com/v1/forecast"
 
@@ -76,7 +78,7 @@ def _build_params(
     }
 
 
-def _parse_responses(responses: list, variable_names: list[str]) -> pd.DataFrame:
+def _parse_responses(responses: list[WeatherApiResponse], variable_names: list[str]) -> pd.DataFrame:
     """Parse API responses into a single DataFrame.
 
     Args:
