@@ -1,7 +1,17 @@
 name: default
 channels:
   - defaults
-dependencies: []
+dependencies:
+  - python>=3.10
+  - numpy
+  - pandas
+  - pip
+  - pip:
+    - gpxpy
+    - openmeteo-requests
+    - openmeteo-sdk
+    - rdp
+    - pytest
 variables:
 prefix:
 platforms:
