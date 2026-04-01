@@ -4,7 +4,7 @@ This module provides functionality to parse GPX files and extract route points, 
 """
 
 __author__ = "mbbrueckner"
-__version__ = "0.2.0"
+__version__ = "1.0.0"
 
 from datetime import datetime
 from dataclasses import dataclass
@@ -16,10 +16,10 @@ import math
 import numpy as np
 
 EARTH_RADIUS = 6_371_000
-EPSILON = 0.0001  
+EPSILON = 0.0005  
 MAX_BEARING_DIFF_DEG = 30.0
 MAX_CLUSTER_DISTANCE_M = 7_000
-MIN_CLUSTER_DISTANCE_M = 2_000
+MIN_CLUSTER_DISTANCE_M = 750
 
 # --- Data Classes ---
 
