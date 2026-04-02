@@ -74,6 +74,7 @@ def _build_params(
         "wind_speed_unit": "ms",
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
+        "models": "best_match",
     }
 
 
