@@ -98,13 +98,13 @@ def cluster_segments(segments: list[Segment]) -> list[SegmentCluster]:
                 cos_sum = sum(math.cos(math.radians(s.bearing_deg)) for s in current_cluster_segments)
                 current_cluster_bearing = math.degrees(math.atan2(sin_sum, cos_sum)) % 360
             else:
-                clusters.append(_build_cluster(current_cluster_segments, current_cluster_length, current_cluster_bearing))
+                clusters.append(_build_cluster(current_cluster_segments, current_cluster_bearing))
                 current_cluster_segments = [seg]
                 current_cluster_length = segment_length
                 current_cluster_bearing = segment_bearing
 
     if current_cluster_segments:
-        clusters.append(_build_cluster(current_cluster_segments, current_cluster_length, current_cluster_bearing))
+        clusters.append(_build_cluster(current_cluster_segments, current_cluster_bearing))
 
     return clusters
 
@@ -212,7 +212,7 @@ def split_into_segments(points: list[RoutePoint]) -> list[Segment]:
 
 
 
-def _build_cluster(segments: list[Segment], total_distance: float, mean_bearing: float) -> SegmentCluster:
+def _build_cluster(segments: list[Segment], mean_bearing: float) -> SegmentCluster:
     """Build a SegmentCluster from a list of segments.
 
     The representative point is the geographic midpoint of the middle segment.
@@ -221,7 +221,6 @@ def _build_cluster(segments: list[Segment], total_distance: float, mean_bearing:
 
     Args:
         segments: Non-empty list of Segments belonging to this cluster.
-        total_distance: Accumulated distance of all segments in meters.
         mean_bearing: Average bearing of the segments in degrees (0–360).
     Returns:
         A SegmentCluster representing the group.
@@ -247,7 +246,6 @@ def _build_cluster(segments: list[Segment], total_distance: float, mean_bearing:
     return SegmentCluster(
         segments=segments,
         mean_bearing=mean_bearing,
-        total_distance_m=total_distance,
         representative_point=representative_point,
     )
 

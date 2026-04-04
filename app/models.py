@@ -50,12 +50,30 @@ class SegmentCluster:
     Attributes:
         segments: List of Segments in the cluster.
         mean_bearing: Average bearing of the segments in degrees (0–360).
-        total_distance_km: Total distance of the cluster in kilometers.
-        representative_lat: Latitude of a representative point for the cluster (e.g., start of first segment).
-        arrival_time: Timestamp of arrival at the representative point, if available.
+        representative_point: A representative RoutePoint for the cluster (geographic midpoint of the middle segment).
     """
-    segments: list[Segment]       
-    mean_bearing: float           
-    total_distance_m: float      
-    representative_point:RoutePoint        
+    segments: list[Segment]
+    mean_bearing: float
+    representative_point: RoutePoint
 
+    @property
+    def total_distance_m(self) -> float:
+        return sum(s.distance_m for s in self.segments)
+
+
+@dataclass
+class ClusteredRoute:
+    """A complete route represented as a list of SegmentClusters.
+
+    Attributes:
+        clusters: List of SegmentClusters that make up the route.
+    """
+    clusters: list[SegmentCluster]
+
+    @property
+    def total_distance_m(self) -> float:
+        return sum(c.total_distance_m for c in self.clusters)
+
+    @property
+    def representative_points(self) -> list[RoutePoint]:
+        return [c.representative_point for c in self.clusters]
