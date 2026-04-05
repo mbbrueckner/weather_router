@@ -9,7 +9,7 @@ __version__ = "1.0.0"
 
 import math
 from enum import Enum
-from app.models import Segment, ClusteredRoute
+from app.models import ClusterWeatherSnapshot, Segment, ClusteredRoute
 
 MAX_HEADWIND_SPEED_KM_H = 60.0
 MAX_TAILWIND_SPEED_KM_H = 50.0
@@ -27,34 +27,27 @@ class WindAlignment(Enum):
     TAILWIND = MAX_TAILWIND_SPEED_KM_H
 
 def score_segment(
-    wind_speed_km_h: float,
-    wind_direction_deg: float,
-    gust_speed_km_h: float,
-    precipitation_mm_15: float,
-    bearing_deg: float,
+    weather_snapshot: ClusterWeatherSnapshot,
 ) -> float:
-    """Score a route segment based on current weather conditions.
-
-    Returns a score between -1.0 (unrideable) and 1.0 (ideal).
-    Returns -1.0 immediately if any condition exceeds its defined maximum.
-
+    """Score a route segment based on its weather conditions.
     Args:
-        wind_speed_km_h: Wind speed in km/h.
-        wind_direction_deg: Wind direction in degrees (meteorological: direction the wind comes from).
-        gust_speed_km_h: Gust speed in km/h.
-        precipitation_mm_15: Precipitation in the last 15 minutes in mm.
-        bearing_deg: Travel direction of the segment in degrees.
-
+        weather_snapshot: Weather conditions for the segment.
     Returns:
-        Score between -1.0 and 1.0.
+        A float score where positive values indicate favorable conditions and negative values indicate unfavorable conditions.
     """
 
+    wind_speed_km_h = weather_snapshot.wind_speed_km_h
+    wind_direction_deg = weather_snapshot.wind_direction_deg
+    gust_speed_km_h = weather_snapshot.wind_gusts_km_h
+    precipitation_mm_h = weather_snapshot.precipitation_mm_h
+    bearing_deg = weather_snapshot.cluster.mean_bearing
+
     gust_delta = gust_speed_km_h - wind_speed_km_h
-    precipitation_mmh = _mm_15_to_mm_h(precipitation_mm_15)
+    precipitation_mm_h = _mm_h_to_mm_h(precipitation_mm_h)
 
     if gust_speed_km_h > MAX_GUST_SPEED_KM_H:       return -1.0
     if gust_delta > MAX_GUST_DELTA_KM_H:           return -1.0
-    if precipitation_mmh > MAX_PRECIPITATION_MM_H: return -1.0
+    if precipitation_mm_h > MAX_PRECIPITATION_MM_H: return -1.0
 
     bx, by = _deg_to_vector(bearing_deg)
     wx, wy = _deg_to_vector(_invert_wind_direction(wind_direction_deg))
@@ -70,7 +63,7 @@ def score_segment(
 
     gust_score = -min(gust_speed_km_h / MAX_GUST_SPEED_KM_H, 1.0)
 
-    rain_score = -min(precipitation_mmh / MAX_PRECIPITATION_MM_H, 1.0)
+    rain_score = -min(precipitation_mm_h / MAX_PRECIPITATION_MM_H, 1.0)
 
     return wind_score * 0.5 + gust_score * 0.3 + rain_score * 0.2
 
@@ -89,16 +82,16 @@ def _categorize_wind_alignment(dot: float) -> WindAlignment:
     else:
         return WindAlignment.CROSSWIND
 
-def _mm_15_to_mm_h(mm_15: float) -> float:
+def _mm_h_to_mm_h(mm_h: float) -> float:
     """Convert precipitation from mm per 15 minutes to mm per hour.
 
     Args:
-        mm_15: Precipitation in mm over 15 minutes.
+        mm_h: Precipitation in mm over 15 minutes.
 
     Returns:
         Precipitation in mm/h.
     """
-    return mm_15 * 4.0
+    return mm_h * 4.0
 
 def _deg_to_vector(deg: float) -> tuple[float, float]:
     """Convert a bearing in degrees to a unit vector.
