@@ -67,6 +67,7 @@ def parse_gpx(file_content: bytes) -> list[RoutePoint]:
                         lat=p.latitude,
                         lon=p.longitude,
                         elevation_m=p.elevation,
+                        timestamp=p.time,
                     )
                 )
     return _simplify(points)

@@ -5,9 +5,9 @@ import numpy as np
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from app.models import RoutePoint, WeatherSnapshot
+from app.models import RoutePoint, Segment, SegmentCluster, ClusteredRoute, ClusterWeatherSnapshot
 from app.services.weather import (
-    get_weather,
+    get_weather_for_route,
     _build_params,
     _parse_responses,
     _find_slot,
@@ -26,6 +26,22 @@ def make_arrival_times(*hours: int) -> list[datetime]:
 
 def make_coords(*pairs: tuple[float, float]) -> list[RoutePoint]:
     return [RoutePoint(lat=lat, lon=lon) for lat, lon in pairs]
+
+def make_cluster(lat: float, lon: float, timestamp: datetime | None = None) -> SegmentCluster:
+    """Build a minimal SegmentCluster with a single 1 km north-bearing segment."""
+    p1 = RoutePoint(lat=lat, lon=lon, timestamp=timestamp)
+    p2 = RoutePoint(lat=lat + 0.009, lon=lon, timestamp=timestamp)
+    segment = Segment(start=p1, end=p2, bearing_deg=0.0, distance_m=1000.0)
+    return SegmentCluster(
+        segments=[segment],
+        mean_bearing=0.0,
+        representative_point=RoutePoint(lat=lat, lon=lon, timestamp=timestamp),
+    )
+
+def make_clustered_route(*pairs_and_times) -> ClusteredRoute:
+    """Build a ClusteredRoute from (lat, lon, datetime) tuples."""
+    clusters = [make_cluster(lat, lon, t) for lat, lon, t in pairs_and_times]
+    return ClusteredRoute(clusters=clusters)
 
 def make_mock_response(
     lat: float,
@@ -145,60 +161,69 @@ class TestFindSlot:
 
 class TestParseResponses:
     def setup_method(self):
-        self.coords = make_coords((48.0, 11.0), (48.5, 11.5))
         self.arrival_times = make_arrival_times(9, 10)
+        self.clusters = [
+            make_cluster(48.0, 11.0, self.arrival_times[0]),
+            make_cluster(48.5, 11.5, self.arrival_times[1]),
+        ]
 
     def test_returns_list_of_snapshots(self):
         responses = [make_mock_response(48.0, 11.0)]
-        result = _parse_responses(responses, [self.coords[0]], [self.arrival_times[0]])
+        result = _parse_responses(responses, [self.clusters[0]], [self.arrival_times[0]])
         assert isinstance(result, list)
-        assert all(isinstance(s, WeatherSnapshot) for s in result)
+        assert all(isinstance(s, ClusterWeatherSnapshot) for s in result)
 
-    def test_one_snapshot_per_coordinate(self):
+    def test_one_snapshot_per_cluster(self):
         responses = [
             make_mock_response(48.0, 11.0),
             make_mock_response(48.5, 11.5),
         ]
-        result = _parse_responses(responses, self.coords, self.arrival_times)
+        result = _parse_responses(responses, self.clusters, self.arrival_times)
         assert len(result) == 2
 
-    def test_snapshot_coords_match(self):
+    def test_snapshot_cluster_matches(self):
         responses = [make_mock_response(48.0, 11.0)]
-        result = _parse_responses(responses, [self.coords[0]], [self.arrival_times[0]])
-        assert result[0].coords == self.coords[0]
+        result = _parse_responses(responses, [self.clusters[0]], [self.arrival_times[0]])
+        assert result[0].cluster == self.clusters[0]
 
     def test_snapshot_timestamp_matches_arrival(self):
         responses = [make_mock_response(48.0, 11.0)]
-        result = _parse_responses(responses, [self.coords[0]], [self.arrival_times[0]])
+        result = _parse_responses(responses, [self.clusters[0]], [self.arrival_times[0]])
         assert result[0].timestamp == self.arrival_times[0]
 
     def test_snapshot_has_wind_speed(self):
         responses = [make_mock_response(48.0, 11.0)]
-        result = _parse_responses(responses, [self.coords[0]], [self.arrival_times[0]])
+        result = _parse_responses(responses, [self.clusters[0]], [self.arrival_times[0]])
         assert isinstance(result[0].wind_speed_km_h, float)
 
     def test_snapshot_has_wind_direction(self):
         responses = [make_mock_response(48.0, 11.0)]
-        result = _parse_responses(responses, [self.coords[0]], [self.arrival_times[0]])
+        result = _parse_responses(responses, [self.clusters[0]], [self.arrival_times[0]])
         assert isinstance(result[0].wind_direction_deg, float)
 
     def test_snapshot_has_gusts(self):
         responses = [make_mock_response(48.0, 11.0)]
-        result = _parse_responses(responses, [self.coords[0]], [self.arrival_times[0]])
+        result = _parse_responses(responses, [self.clusters[0]], [self.arrival_times[0]])
         assert isinstance(result[0].wind_gusts_km_h, float)
 
     def test_snapshot_has_precipitation(self):
         responses = [make_mock_response(48.0, 11.0)]
-        result = _parse_responses(responses, [self.coords[0]], [self.arrival_times[0]])
+        result = _parse_responses(responses, [self.clusters[0]], [self.arrival_times[0]])
         assert isinstance(result[0].precipitation_mm_h, float)
 
 
-# --- get_weather ---
+# --- get_weather_for_route ---
 
-class TestGetWeather:
+class TestGetWeatherForRoute:
     def setup_method(self):
-        self.coords = make_coords((48.0, 11.0), (48.5, 11.5))
         self.arrival_times = make_arrival_times(9, 10)
+        self.route_2 = make_clustered_route(
+            (48.0, 11.0, self.arrival_times[0]),
+            (48.5, 11.5, self.arrival_times[1]),
+        )
+        self.route_1 = make_clustered_route(
+            (48.0, 11.0, self.arrival_times[0]),
+        )
 
     @patch("app.services.weather.openmeteo_requests.Client")
     def test_returns_list_of_snapshots(self, mock_client_cls):
@@ -206,7 +231,7 @@ class TestGetWeather:
             make_mock_response(48.0, 11.0),
             make_mock_response(48.5, 11.5),
         ]
-        result = get_weather(self.coords, self.arrival_times)
+        result = get_weather_for_route(self.route_2)
         assert isinstance(result, list)
         assert len(result) == 2
 
@@ -215,7 +240,7 @@ class TestGetWeather:
         mock_client_cls.return_value.weather_api.return_value = [
             make_mock_response(48.0, 11.0),
         ]
-        result = get_weather([self.coords[0]], [self.arrival_times[0]])
+        result = get_weather_for_route(self.route_1)
         assert len(result) == 1
 
     @patch("app.services.weather.openmeteo_requests.Client")
@@ -224,7 +249,7 @@ class TestGetWeather:
         mock_client.weather_api.return_value = [make_mock_response(48.0, 11.0)]
         mock_client_cls.return_value = mock_client
 
-        get_weather([self.coords[0]], [self.arrival_times[0]])
+        get_weather_for_route(self.route_1)
 
         params = mock_client.weather_api.call_args.kwargs["params"]
         assert params["latitude"] == [48.0]
@@ -236,7 +261,7 @@ class TestGetWeather:
         mock_client.weather_api.return_value = [make_mock_response(48.0, 11.0)]
         mock_client_cls.return_value = mock_client
 
-        get_weather([self.coords[0]], [self.arrival_times[0]])
+        get_weather_for_route(self.route_1)
 
         params = mock_client.weather_api.call_args.kwargs["params"]
         assert params["start_date"] == "2026-04-06"

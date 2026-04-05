@@ -2,6 +2,8 @@
 
 import math
 import pytest
+from datetime import datetime, timezone
+from app.models import RoutePoint, Segment, SegmentCluster, ClusterWeatherSnapshot
 from app.services.route_scorer import (
     _deg_to_vector,
     _invert_wind_direction,
@@ -16,6 +18,33 @@ from app.services.route_scorer import (
     MAX_HEADWIND_SPEED_KM_H,
     MAX_CROSSWIND_SPEED_KM_H,
 )
+
+
+# --- Fixtures ---
+
+def make_snapshot(
+    wind_speed_km_h: float,
+    wind_direction_deg: float,
+    gust_speed_km_h: float,
+    precipitation_mm_15: float,
+    bearing_deg: float,
+) -> ClusterWeatherSnapshot:
+    """Build a minimal ClusterWeatherSnapshot for scoring tests."""
+    p = RoutePoint(lat=48.0, lon=11.0)
+    segment = Segment(start=p, end=p, bearing_deg=bearing_deg, distance_m=1000.0)
+    cluster = SegmentCluster(
+        segments=[segment],
+        mean_bearing=bearing_deg,
+        representative_point=p,
+    )
+    return ClusterWeatherSnapshot(
+        cluster=cluster,
+        timestamp=datetime(2026, 4, 6, 9, 0, tzinfo=timezone.utc),
+        wind_speed_km_h=wind_speed_km_h,
+        wind_direction_deg=wind_direction_deg,
+        wind_gusts_km_h=gust_speed_km_h,
+        precipitation_mm_h=precipitation_mm_15,
+    )
 
 
 # ── _invert_wind_direction ────────────────────────────────────────
@@ -128,59 +157,59 @@ def test_wind_alignment_crosswind():
 
 def test_perfect_tailwind_scores_positive():
     """Wind from west, riding east → pure tailwind → positive score."""
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=20.0,
         wind_direction_deg=270.0,
         gust_speed_km_h=5.0,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert score > 0.0
 
 def test_perfect_headwind_scores_negative():
     """Wind from east, riding east → pure headwind → negative score."""
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=20.0,
         wind_direction_deg=90.0,
         gust_speed_km_h=5.0,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert score < 0.0
 
 def test_crosswind_scores_near_zero():
     """Wind from north, riding east → crosswind → score near zero."""
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=20.0,
         wind_direction_deg=0.0,
         gust_speed_km_h=5.0,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert -0.3 < score < 0.3
 
 def test_zero_wind_scores_zero():
     """No wind, no rain, no gusts → neutral score."""
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=0.0,
         wind_direction_deg=270.0,
         gust_speed_km_h=0.0,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert math.isclose(score, 0.0, abs_tol=1e-9)
 
 def test_score_always_within_bounds():
     """Score must never exceed -1.0 to +1.0 for any input combination."""
     for wind_dir in range(0, 360, 45):
         for speed in [0.0, 10.0, 25.0, 49.0]:
-            score = score_segment(
+            score = score_segment(make_snapshot(
                 wind_speed_km_h=speed,
                 wind_direction_deg=float(wind_dir),
                 gust_speed_km_h=min(speed + 5.0, MAX_GUST_SPEED_KM_H - 1),
                 precipitation_mm_15=0.0,
                 bearing_deg=90.0,
-            )
+            ))
             assert -1.0 <= score <= 1.0, (
                 f"Score {score} out of bounds for wind_dir={wind_dir}, speed={speed}"
             )
@@ -189,66 +218,66 @@ def test_score_always_within_bounds():
 # ── score_segment: Hard Blocks ────────────────────────────────────
 
 def test_excessive_gusts_returns_hard_block():
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=10.0,
         wind_direction_deg=270.0,
         gust_speed_km_h=MAX_GUST_SPEED_KM_H + 1.0,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert score == -1.0
 
 def test_excessive_gust_delta_returns_hard_block():
     """Gusts much stronger than average wind → unpredictable → hard block."""
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=5.0,
         wind_direction_deg=270.0,
         gust_speed_km_h=5.0 + MAX_GUST_DELTA_KM_H + 1.0,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert score == -1.0
 
 def test_heavy_rain_returns_hard_block():
     """Precipitation exceeding threshold → hard block."""
     mm_15_threshold = (MAX_PRECIPITATION_MM_H / 4.0) + 0.1
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=10.0,
         wind_direction_deg=270.0,
         gust_speed_km_h=5.0,
         precipitation_mm_15=mm_15_threshold,
         bearing_deg=90.0,
-    )
+    ))
     assert score == -1.0
 
 def test_excessive_tailwind_returns_hard_block():
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=MAX_TAILWIND_SPEED_KM_H + 1.0,
         wind_direction_deg=270.0,
         gust_speed_km_h=10.0,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert score == -1.0
 
 def test_excessive_headwind_returns_hard_block():
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=MAX_HEADWIND_SPEED_KM_H + 1.0,
         wind_direction_deg=90.0,
         gust_speed_km_h=10.0,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert score == -1.0
 
 def test_excessive_crosswind_returns_hard_block():
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=MAX_CROSSWIND_SPEED_KM_H + 1.0,
         wind_direction_deg=0.0,   # Seitenwind zu Fahrtrichtung Ost
         gust_speed_km_h=10.0,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert score == -1.0
 
 
@@ -256,17 +285,17 @@ def test_excessive_crosswind_returns_hard_block():
 
 def test_exactly_at_gust_limit_not_hard_block():
     """Exactly at the limit should NOT trigger hard block."""
-    score = score_segment(
+    score = score_segment(make_snapshot(
         wind_speed_km_h=10.0,
         wind_direction_deg=270.0,
         gust_speed_km_h=MAX_GUST_SPEED_KM_H,
         precipitation_mm_15=0.0,
         bearing_deg=90.0,
-    )
+    ))
     assert score != -1.0
 
 def test_rain_and_headwind_both_penalize():
     """Rain + headwind should score worse than headwind alone."""
-    headwind_only = score_segment(10.0, 90.0, 5.0, 0.0, 90.0)
-    headwind_rain  = score_segment(10.0, 90.0, 5.0, 1.0, 90.0)
+    headwind_only = score_segment(make_snapshot(10.0, 90.0, 5.0, 0.0, 90.0))
+    headwind_rain  = score_segment(make_snapshot(10.0, 90.0, 5.0, 1.0, 90.0))
     assert headwind_rain < headwind_only
