@@ -4,7 +4,7 @@ This module provides functionality to parse GPX files and extract route points, 
 """
 
 __author__ = "mbbrueckner"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 from app.models import RoutePoint, Segment, SegmentCluster
@@ -16,10 +16,11 @@ import math
 import numpy as np
 
 EARTH_RADIUS = 6_371_000
-EPSILON = 0.0005  
+EPSILON = 0.0005
+SLOT_MIN = 15.0
 MAX_BEARING_DIFF_DEG = 30.0
-MAX_CLUSTER_DISTANCE_M = 7_000
 MIN_CLUSTER_DISTANCE_M = 750
+
 
 # --- Main Functions ---
 
@@ -29,7 +30,6 @@ def parse_gpx(file_content: bytes) -> list[RoutePoint]:
     Iterates over all tracks and segments in the GPX data and collects
     each point as a RoutePoint.
     Runs a simplification step to reduce the number of points while preserving the route shape.
-
 
     Args:
         file_content: Raw bytes of a GPX file.
@@ -44,25 +44,51 @@ def parse_gpx(file_content: bytes) -> list[RoutePoint]:
             for p in segment.points:
                 points.append(
                     RoutePoint(
-                        lat=p.latitude, 
-                        lon=p.longitude, 
-                        elevation_m=p.elevation, 
+                        lat=p.latitude,
+                        lon=p.longitude,
+                        elevation_m=p.elevation,
                         timestamp=p.time
                     )
-                  )
+                )
     return _simplify(points)
 
 
+def split_into_segments(points: list[RoutePoint]) -> list[Segment]:
+    """Split an ordered list of RoutePoints into consecutive Segments.
 
-def cluster_segments(segments: list[Segment]) -> list[SegmentCluster]:
+    Args:
+        points: Ordered list of RoutePoints representing a route.
+
+    Returns:
+        List of Segments, each annotated with bearing and distance.
+        Contains len(points) - 1 entries.
+    """
+    segments = []
+    for p1, p2 in zip(points[:-1], points[1:]):
+        segments.append(
+            Segment(
+                start=p1,
+                end=p2,
+                bearing_deg=_bearing(p1, p2),
+                distance_m=_haversine(p1, p2)
+            )
+        )
+    return segments
+
+
+def cluster_segments(
+    segments: list[Segment],
+    avg_speed_kmh: float = 20.0,
+) -> list[SegmentCluster]:
     """Group consecutive segments into clusters based on bearing similarity and distance.
 
-    A new cluster is started whenever the accumulated distance exceeds
-    MAX_CLUSTER_DISTANCE_M or the bearing difference to the current cluster
-    exceeds MAX_BEARING_DIFF_DEG.
+    A new cluster is started whenever the accumulated distance exceeds the
+    dynamically computed maximum (based on speed and gradient), or the bearing
+    difference to the current cluster exceeds MAX_BEARING_DIFF_DEG.
 
     Args:
         segments: Ordered list of Segments to cluster.
+        avg_speed_kmh: Rider's average speed in km/h, used to compute max cluster size.
 
     Returns:
         List of SegmentClusters representing straight portions of the route.
@@ -85,8 +111,11 @@ def cluster_segments(segments: list[Segment]) -> list[SegmentCluster]:
             new_length = current_cluster_length + segment_length
             bearing_difference = _unsigned_bearing_difference(current_cluster_bearing, segment_bearing)
 
+            gradient = _cluster_gradient(current_cluster_segments)
+            max_distance = _max_cluster_distance(avg_speed_kmh, gradient)
+
             should_continue = (
-                new_length < MAX_CLUSTER_DISTANCE_M
+                new_length < max_distance
                 and (current_cluster_length < MIN_CLUSTER_DISTANCE_M or bearing_difference < MAX_BEARING_DIFF_DEG)
             )
 
@@ -107,7 +136,6 @@ def cluster_segments(segments: list[Segment]) -> list[SegmentCluster]:
         clusters.append(_build_cluster(current_cluster_segments, current_cluster_bearing))
 
     return clusters
-
 
 
 def write_gpx(points: list[RoutePoint]) -> bytes:
@@ -135,6 +163,7 @@ def write_gpx(points: list[RoutePoint]) -> bytes:
         )
     return gpx.to_xml().encode()
 
+
 # --- Helper Functions ---
 
 def _simplify(points: list[RoutePoint]) -> list[RoutePoint]:
@@ -146,11 +175,62 @@ def _simplify(points: list[RoutePoint]) -> list[RoutePoint]:
     Returns:
         Simplified list of RoutePoints.
     """
-   
     coords = np.array([[p.lat, p.lon] for p in points])
     mask = rdp(coords, epsilon=EPSILON, return_mask=True)
-   
     return [p for p, keep in zip(points, mask) if keep]
+
+
+def _max_cluster_distance(avg_speed_kmh: float, gradient_pct: float = 0.0) -> float:
+    """Compute the maximum cluster distance for one weather slot.
+
+    Args:
+        avg_speed_kmh: Rider's base average speed in km/h.
+        gradient_pct: Current gradient in percent (positive = uphill).
+
+    Returns:
+        Maximum cluster distance in meters.
+    """
+    local_speed = _estimate_speed(avg_speed_kmh, gradient_pct)
+    return (local_speed / 60.0) * SLOT_MIN * 1000.0
+
+
+def _estimate_speed(base_speed_kmh: float, gradient_pct: float) -> float:
+    """Estimate local riding speed based on gradient.
+
+    Applies a simple linear model: each percent of gradient
+    reduces speed by 1.5 km/h (negative gradient increases it).
+
+    Args:
+        base_speed_kmh: Rider's base average speed in km/h.
+        gradient_pct: Gradient in percent (positive = uphill, negative = downhill).
+
+    Returns:
+        Estimated local speed in km/h, clamped to 5–60 km/h.
+    """
+    speed = base_speed_kmh - gradient_pct * 1.5
+    return max(5.0, min(60.0, speed))
+
+
+def _cluster_gradient(segments: list[Segment]) -> float:
+    """Compute the overall gradient of a list of segments in percent.
+
+    Uses the elevation of the first start point and last end point.
+    Returns 0.0 if elevation data is unavailable.
+
+    Args:
+        segments: Non-empty list of Segments.
+
+    Returns:
+        Gradient in percent (positive = uphill, negative = downhill).
+    """
+    start_elev = segments[0].start.elevation_m
+    end_elev = segments[-1].end.elevation_m
+    if start_elev is None or end_elev is None:
+        return 0.0
+    total_distance = sum(s.distance_m for s in segments)
+    if total_distance == 0.0:
+        return 0.0
+    return ((end_elev - start_elev) / total_distance) * 100.0
 
 
 def _haversine(p1: RoutePoint, p2: RoutePoint) -> float:
@@ -187,59 +267,40 @@ def _bearing(p1: RoutePoint, p2: RoutePoint) -> float:
     return (math.degrees(math.atan2(y, x)) + 360) % 360
 
 
-def split_into_segments(points: list[RoutePoint]) -> list[Segment]:
-    """Split an ordered list of RoutePoints into consecutive Segments.
-
-    Args:
-        points: Ordered list of RoutePoints representing a route.
-
-    Returns:
-        List of Segments, each annotated with bearing and distance.
-        Contains len(points) - 1 entries.
-    """
-    segments = []
-    for p1, p2 in zip(points[:-1], points[1:]):
-        segments.append(
-            Segment(
-                start=p1,
-                end=p2,
-                bearing_deg=_bearing(p1, p2),
-                distance_m=_haversine(p1, p2)
-            )
-        )
-    return segments
-             
-
-
-
 def _build_cluster(segments: list[Segment], mean_bearing: float) -> SegmentCluster:
     """Build a SegmentCluster from a list of segments.
 
     The representative point is the geographic midpoint of the middle segment.
-    The mean bearing is computed as a circular mean to correctly handle the
-    0°/360° wrap-around.
 
     Args:
         segments: Non-empty list of Segments belonging to this cluster.
         mean_bearing: Average bearing of the segments in degrees (0–360).
+
     Returns:
         A SegmentCluster representing the group.
     """
     num_segments = len(segments)
-
     middle_segment = segments[num_segments // 2]
 
     start_elev = middle_segment.start.elevation_m
     end_elev = middle_segment.end.elevation_m
-
     start_ts = middle_segment.start.timestamp
     end_ts = middle_segment.end.timestamp
-    timestamp = start_ts + (end_ts - start_ts) / 2 if (start_ts is not None and end_ts is not None) else start_ts
+
+    timestamp = (
+        start_ts + (end_ts - start_ts) / 2
+        if (start_ts is not None and end_ts is not None)
+        else start_ts
+    )
 
     representative_point = RoutePoint(
         lat=(middle_segment.start.lat + middle_segment.end.lat) / 2,
         lon=(middle_segment.start.lon + middle_segment.end.lon) / 2,
-        elevation_m=(start_elev + end_elev) / 2 if (start_elev is not None and end_elev is not None) else None,
+        elevation_m=(
+            (start_elev + end_elev) / 2
+            if (start_elev is not None and end_elev is not None)
+            else None
+        ),
         timestamp=timestamp,
     )
 
@@ -249,31 +310,32 @@ def _build_cluster(segments: list[Segment], mean_bearing: float) -> SegmentClust
         representative_point=representative_point,
     )
 
-            
+
 def _signed_bearing_difference(b1: float, b2: float) -> float:
-    """ Calculate the signed difference between two bearings
+    """Calculate the signed difference between two bearings.
 
     Args:
-        b1: first bearing
-        b2: second bearing
-    
+        b1: First bearing in degrees.
+        b2: Second bearing in degrees.
+
     Returns:
-        Signed difference between b1 and b2
+        Signed difference in degrees, in the range (-180, 180].
     """
     diff = (b2 - b1) % 360
     if diff > 180:
         diff -= 360
     return diff
 
-def _unsigned_bearing_difference(b1 :float, b2:float) -> float:
-    """ Calculate the unsigned difference between two bearings
+
+def _unsigned_bearing_difference(b1: float, b2: float) -> float:
+    """Calculate the unsigned difference between two bearings.
 
     Args:
-        b1: first bearing
-        b2: second bearing
-    
+        b1: First bearing in degrees.
+        b2: Second bearing in degrees.
+
     Returns:
-        Unsigned difference between b1 and b2
+        Unsigned difference in degrees, in the range [0, 180].
     """
     diff = abs(b1 - b2) % 360
     return min(diff, 360 - diff)
