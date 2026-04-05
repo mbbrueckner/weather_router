@@ -5,7 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "weather-router"
 version = "1.0.0"
+description = "Analyze GPS routes against weather forecasts to score riding conditions."
+requires-python = ">=3.10"
+authors = [{ name = "mbbrueckner" }]
+dependencies = [
+    "gpxpy",
+    "rdp",
+    "numpy",
+    "openmeteo-requests",
+    "openmeteo-sdk",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

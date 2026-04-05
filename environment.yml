@@ -1,4 +1,4 @@
-name: default
+name: weather-router
 channels:
   - defaults
 dependencies:
