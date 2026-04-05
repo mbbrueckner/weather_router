@@ -23,8 +23,8 @@ DEFAULT_MINUTELY_15 = [
 ]
 
 
-def get_weather(
-    clusters: ClusteredRoute,
+def get_weather_for_route(
+    clustered_route: ClusteredRoute,
 ) -> list[ClusterWeatherSnapshot]:
     """Fetch weather snapshots for a list of route points at their arrival times.
 
@@ -36,13 +36,13 @@ def get_weather(
         List of WeatherSnapshots, one per coordinate.
     """
 
-    coords = clusters.representative_points
-    arrival_times = [c.timestamp for c in coords]
+    representative_points = clustered_route.representative_points
+    arrival_times = [c.timestamp for c in representative_points]
 
-    params = _build_params(coords, arrival_times)
+    params = _build_params(representative_points, arrival_times)
     client = openmeteo_requests.Client()
     responses = client.weather_api(API_URL, params=params)
-    return _parse_responses(responses, coords, arrival_times)
+    return _parse_responses(responses, clustered_route.clusters, arrival_times)
 
 
 def _build_params(
