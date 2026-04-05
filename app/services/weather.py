@@ -1,18 +1,17 @@
 """Weather data retrieval from Open-Meteo API.
 
 This module provides functionality to fetch weather forecasts for a list of
-route points using the Open-Meteo API, returning the data as a pandas DataFrame.
+route points using the Open-Meteo API, returning a list of WeatherSnapshots.
 """
 
 __author__ = "mbbrueckner"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
-from datetime import date
-from app.models import RoutePoint
+from datetime import datetime
+from app.models import RoutePoint, WeatherSnapshot
 
 import openmeteo_requests
 import openmeteo_sdk.WeatherApiResponse as WeatherApiResponse
-import pandas as pd
 
 API_URL = "https://api.open-meteo.com/v1/forecast"
 
@@ -23,46 +22,35 @@ DEFAULT_MINUTELY_15 = [
     "precipitation",
 ]
 
+
 def get_weather(
     coords: list[RoutePoint],
-    start_date: date,
-    end_date: date | None = None,
-    minutely_15: list[str] = DEFAULT_MINUTELY_15,
-) -> pd.DataFrame:
-    """Fetch minutely weather forecasts for a list of route points.
+    arrival_times: list[datetime],
+) -> list[WeatherSnapshot]:
+    """Fetch weather snapshots for a list of route points at their arrival times.
 
     Args:
         coords: List of RoutePoints to fetch weather for.
-        start_date: Start date of the forecast.
-        end_date: End date of the forecast. Defaults to start_date.
-        minutely_15: List of weather variables to fetch.
+        arrival_times: List of expected arrival times, one per coordinate.
 
     Returns:
-        DataFrame with columns: latitude, longitude, date, and one column
-        per requested weather variable.
+        List of WeatherSnapshots, one per coordinate.
     """
-    if end_date is None:
-        end_date = start_date
-
-    params = _build_params(coords, start_date, end_date, minutely_15)
+    params = _build_params(coords, arrival_times)
     client = openmeteo_requests.Client()
     responses = client.weather_api(API_URL, params=params)
-    return _parse_responses(responses, minutely_15)
+    return _parse_responses(responses, coords, arrival_times)
 
 
 def _build_params(
     coords: list[RoutePoint],
-    start_date: date,
-    end_date: date,
-    minutely_15: list[str],
+    arrival_times: list[datetime],
 ) -> dict:
     """Build the API request parameters.
 
     Args:
         coords: List of RoutePoints.
-        start_date: Start date of the forecast.
-        end_date: End date of the forecast.
-        minutely_15: List of weather variables to fetch.
+        arrival_times: List of arrival datetimes – used to determine date range.
 
     Returns:
         Dictionary of API parameters.
@@ -70,41 +58,64 @@ def _build_params(
     return {
         "latitude": [c.lat for c in coords],
         "longitude": [c.lon for c in coords],
-        "minutely_15": ",".join(minutely_15),
+        "minutely_15": ",".join(DEFAULT_MINUTELY_15),
         "wind_speed_unit": "ms",
-        "start_date": start_date.isoformat(),
-        "end_date": end_date.isoformat(),
+        "start_date": arrival_times[0].date().isoformat(),
+        "end_date": arrival_times[-1].date().isoformat(),
         "models": "best_match",
     }
 
 
-def _parse_responses(responses: list[WeatherApiResponse], variable_names: list[str]) -> pd.DataFrame:
-    """Parse API responses into a single DataFrame.
+def _parse_responses(
+    responses: list[WeatherApiResponse],
+    coords: list[RoutePoint],
+    arrival_times: list[datetime],
+) -> list[WeatherSnapshot]:
+    """Parse API responses into WeatherSnapshot objects.
 
     Args:
         responses: List of API response objects, one per coordinate.
-        variable_names: List of weather variable names matching response order.
+        coords: List of RoutePoints matching the responses.
+        arrival_times: List of arrival times, one per coordinate.
 
     Returns:
-        Combined DataFrame for all coordinates.
+        List of WeatherSnapshots for all coordinates.
     """
-    frames = []
+    snapshots = []
 
-    for response in responses:
+    for i, response in enumerate(responses):
         minutely = response.Minutely15()
-        data = {
-            "latitude": response.Latitude(),
-            "longitude": response.Longitude(),
-            "date": pd.date_range(
-                start=pd.to_datetime(minutely.Time(), unit="s", utc=True),
-                end=pd.to_datetime(minutely.TimeEnd(), unit="s", utc=True),
-                freq=pd.Timedelta(seconds=minutely.Interval()),
-                inclusive="left",
-            ),
-        }
-        for i, name in enumerate(variable_names):
-            data[name] = minutely.Variables(i).ValuesAsNumpy()
+        idx = _find_slot(minutely, arrival_times[i])
 
-        frames.append(pd.DataFrame(data))
+        snapshot = WeatherSnapshot(
+            coords=coords[i],
+            timestamp=arrival_times[i],
+            wind_speed_ms=minutely.Variables(0).ValuesAsNumpy()[idx],
+            wind_direction_deg=minutely.Variables(1).ValuesAsNumpy()[idx],
+            wind_gusts_ms=minutely.Variables(2).ValuesAsNumpy()[idx],
+            precipitation_mm_15=minutely.Variables(3).ValuesAsNumpy()[idx],
+        )
+        snapshots.append(snapshot)
 
-    return pd.concat(frames, ignore_index=True)
+    return snapshots
+
+
+def _find_slot(minutely, target_time: datetime) -> int:
+    """Find the index of the nearest 15-minute weather slot for a given time.
+
+    Args:
+        minutely: Open-Meteo Minutely15 response object.
+        target_time: Target datetime to find the slot for.
+
+    Returns:
+        Index of the nearest slot, clamped to valid range.
+    """
+    start_unix = minutely.Time()
+    interval = minutely.Interval()
+    end_unix = minutely.TimeEnd()
+
+    num_slots = int((end_unix - start_unix) / interval)
+    target_unix = target_time.timestamp()
+
+    idx = round((target_unix - start_unix) / interval)
+    return max(0, min(idx, num_slots - 1))
