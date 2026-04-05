@@ -8,7 +8,7 @@ __author__ = "mbbrueckner"
 __version__ = "1.1.0"
 
 from datetime import datetime
-from app.models import RoutePoint, WeatherSnapshot
+from app.models import RoutePoint, ClusterWeatherSnapshot, ClusteredRoute, SegmentCluster
 
 import openmeteo_requests
 import openmeteo_sdk.WeatherApiResponse as WeatherApiResponse
@@ -24,9 +24,8 @@ DEFAULT_MINUTELY_15 = [
 
 
 def get_weather(
-    coords: list[RoutePoint],
-    arrival_times: list[datetime],
-) -> list[WeatherSnapshot]:
+    clusters: ClusteredRoute,
+) -> list[ClusterWeatherSnapshot]:
     """Fetch weather snapshots for a list of route points at their arrival times.
 
     Args:
@@ -36,6 +35,10 @@ def get_weather(
     Returns:
         List of WeatherSnapshots, one per coordinate.
     """
+
+    coords = clusters.representative_points
+    arrival_times = [c.timestamp for c in coords]
+
     params = _build_params(coords, arrival_times)
     client = openmeteo_requests.Client()
     responses = client.weather_api(API_URL, params=params)
@@ -68,9 +71,9 @@ def _build_params(
 
 def _parse_responses(
     responses: list[WeatherApiResponse],
-    coords: list[RoutePoint],
+    clusters: list[SegmentCluster],
     arrival_times: list[datetime],
-) -> list[WeatherSnapshot]:
+) -> list[ClusterWeatherSnapshot]:
     """Parse API responses into WeatherSnapshot objects.
 
     Args:
@@ -87,8 +90,8 @@ def _parse_responses(
         minutely = response.Minutely15()
         idx = _find_slot(minutely, arrival_times[i])
 
-        snapshot = WeatherSnapshot(
-            coords=coords[i],
+        snapshot = ClusterWeatherSnapshot(
+            cluster=clusters[i],
             timestamp=arrival_times[i],
             wind_speed_km_h=minutely.Variables(0).ValuesAsNumpy()[idx],
             wind_direction_deg=minutely.Variables(1).ValuesAsNumpy()[idx],

@@ -79,8 +79,8 @@ class ClusteredRoute:
         return [c.representative_point for c in self.clusters]
     
 @dataclass 
-class WeatherSnapshot:
-    coords: RoutePoint
+class ClusterWeatherSnapshot:
+    cluster: SegmentCluster
     timestamp: datetime
     wind_speed_km_h : float
     wind_direction_deg : float
