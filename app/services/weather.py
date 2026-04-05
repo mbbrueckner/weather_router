@@ -90,10 +90,10 @@ def _parse_responses(
         snapshot = WeatherSnapshot(
             coords=coords[i],
             timestamp=arrival_times[i],
-            wind_speed_ms=minutely.Variables(0).ValuesAsNumpy()[idx],
+            wind_speed_km_h=minutely.Variables(0).ValuesAsNumpy()[idx],
             wind_direction_deg=minutely.Variables(1).ValuesAsNumpy()[idx],
-            wind_gusts_ms=minutely.Variables(2).ValuesAsNumpy()[idx],
-            precipitation_mm_15=minutely.Variables(3).ValuesAsNumpy()[idx],
+            wind_gusts_km_h=minutely.Variables(2).ValuesAsNumpy()[idx],
+            precipitation_mm_h=minutely.Variables(3).ValuesAsNumpy()[idx],
         )
         snapshots.append(snapshot)
 
