@@ -26,14 +26,16 @@ DEFAULT_MINUTELY_15 = [
 def get_weather_for_route(
     clustered_route: ClusteredRoute,
 ) -> list[ClusterWeatherSnapshot]:
-    """Fetch weather snapshots for a list of route points at their arrival times.
+    """Fetch weather snapshots for all clusters in a route.
+
+    Extracts the representative point and estimated arrival time from each cluster,
+    queries the Open-Meteo API, and returns one ClusterWeatherSnapshot per cluster.
 
     Args:
-        coords: List of RoutePoints to fetch weather for.
-        arrival_times: List of expected arrival times, one per coordinate.
+        clustered_route: The ClusteredRoute whose clusters should be enriched with weather data.
 
     Returns:
-        List of WeatherSnapshots, one per coordinate.
+        List of ClusterWeatherSnapshots, one per cluster, in route order.
     """
 
     representative_points = clustered_route.representative_points
@@ -74,15 +76,15 @@ def _parse_responses(
     clusters: list[SegmentCluster],
     arrival_times: list[datetime],
 ) -> list[ClusterWeatherSnapshot]:
-    """Parse API responses into WeatherSnapshot objects.
+    """Parse API responses into ClusterWeatherSnapshot objects.
 
     Args:
-        responses: List of API response objects, one per coordinate.
-        coords: List of RoutePoints matching the responses.
-        arrival_times: List of arrival times, one per coordinate.
+        responses: List of API response objects, one per cluster.
+        clusters: List of SegmentClusters matching the responses.
+        arrival_times: List of arrival times, one per cluster.
 
     Returns:
-        List of WeatherSnapshots for all coordinates.
+        List of ClusterWeatherSnapshots for all clusters.
     """
     snapshots = []
 

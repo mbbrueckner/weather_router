@@ -58,6 +58,7 @@ class SegmentCluster:
 
     @property
     def total_distance_m(self) -> float:
+        """Total length of all segments in the cluster in meters."""
         return sum(s.distance_m for s in self.segments)
 
 
@@ -72,19 +73,32 @@ class ClusteredRoute:
 
     @property
     def total_distance_m(self) -> float:
+        """Total length of all clusters in the route in meters."""
         return sum(c.total_distance_m for c in self.clusters)
 
     @property
     def representative_points(self) -> list[RoutePoint]:
+        """List of representative RoutePoints, one per cluster."""
         return [c.representative_point for c in self.clusters]
-    
-@dataclass 
+
+@dataclass
 class ClusterWeatherSnapshot:
+    """Weather conditions observed at a specific cluster's representative point and time.
+
+    Attributes:
+        cluster: The SegmentCluster this snapshot belongs to.
+        timestamp: UTC datetime when the rider is expected to reach this cluster.
+        wind_speed_km_h: Average wind speed in km/h at 10 m height.
+        wind_direction_deg: Meteorological wind origin direction in degrees (0–360, 0 = from north).
+        wind_gusts_km_h: Wind gust speed in km/h.
+        precipitation_mm_h: Precipitation accumulated over the 15-minute interval in mm
+            (equivalent to mm/15 min; multiply by 4 to get mm/h).
+    """
     cluster: SegmentCluster
     timestamp: datetime
-    wind_speed_km_h : float
-    wind_direction_deg : float
-    wind_gusts_km_h : float
+    wind_speed_km_h: float
+    wind_direction_deg: float
+    wind_gusts_km_h: float
     precipitation_mm_h: float
 
 

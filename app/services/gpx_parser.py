@@ -36,8 +36,8 @@ def get_clustered_route(file_content: bytes, avg_speed_kmh: float, start_time: d
         avg_speed_kmh: Rider's average speed in km/h, used for dynamic cluster sizing.
         start_time: The start time for weather data retrieval.
     Returns:
-        List of SegmentClusters representing straight portions of the route.
-    """    
+        ClusteredRoute containing all SegmentClusters representing straight portions of the route.
+    """
     points = parse_gpx(file_content)
     segments = split_into_segments(points)
     clusters = cluster_segments(segments, avg_speed_kmh, start_time)

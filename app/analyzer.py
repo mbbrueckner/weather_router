@@ -34,16 +34,6 @@ def analyze_route(gpx_file : bytes, avg_speed_kmh: float, start_time: datetime) 
 
     return total_score / route_clusters.total_distance_m
     
-    
-if __name__ == "__main__":
-    # Example usage
-    with open("example_route.gpx", "rb") as f:
-        gpx_data = f.read()
-    avg_speed = 15.0  # km/h
-    score = analyze_route(gpx_data, avg_speed)
-    print(f"Overall route score: {score:.2f}")
-        
-        
 
     
 

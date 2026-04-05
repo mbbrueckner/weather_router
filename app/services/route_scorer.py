@@ -43,7 +43,7 @@ def score_segment(
     bearing_deg = weather_snapshot.cluster.mean_bearing
 
     gust_delta = gust_speed_km_h - wind_speed_km_h
-    precipitation_mm_h = _mm_h_to_mm_h(precipitation_mm_h)
+    precipitation_mm_h = _mm_15_to_mm_h(precipitation_mm_h)
 
     if gust_speed_km_h > MAX_GUST_SPEED_KM_H:       return -1.0
     if gust_delta > MAX_GUST_DELTA_KM_H:           return -1.0
@@ -82,16 +82,16 @@ def _categorize_wind_alignment(dot: float) -> WindAlignment:
     else:
         return WindAlignment.CROSSWIND
 
-def _mm_h_to_mm_h(mm_h: float) -> float:
+def _mm_15_to_mm_h(mm_15: float) -> float:
     """Convert precipitation from mm per 15 minutes to mm per hour.
 
     Args:
-        mm_h: Precipitation in mm over 15 minutes.
+        mm_15: Precipitation in mm over 15 minutes.
 
     Returns:
         Precipitation in mm/h.
     """
-    return mm_h * 4.0
+    return mm_15 * 4.0
 
 def _deg_to_vector(deg: float) -> tuple[float, float]:
     """Convert a bearing in degrees to a unit vector.
