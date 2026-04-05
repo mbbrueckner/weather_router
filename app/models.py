@@ -84,7 +84,7 @@ class WeatherSnapshot:
     timestamp: datetime
     wind_speed_km_h : float
     wind_direction_deg : float
-    gust_speed_km_h : float
+    wind_gusts_km_h : float
     precipitation_mm_h: float
 
 
