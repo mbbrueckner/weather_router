@@ -7,7 +7,7 @@ __author__ = "mbbrueckner"
 __version__ = "1.1.0"
 
 
-from app.models import RoutePoint, Segment, SegmentCluster
+from app.models import ClusteredRoute, RoutePoint, Segment, SegmentCluster
 
 from rdp import rdp
 
@@ -24,7 +24,7 @@ MIN_CLUSTER_DISTANCE_M = 750
 
 # --- Main Functions ---
 
-def get_route_clusters(file_content: bytes, avg_speed_kmh: float) -> list[SegmentCluster]:
+def get_route_clusters(file_content: bytes, avg_speed_kmh: float) -> ClusteredRoute:
     """Parse GPX file content and extract route clusters.
 
     Combines the main steps of parsing, segmenting, and clustering into a single function.
@@ -38,7 +38,7 @@ def get_route_clusters(file_content: bytes, avg_speed_kmh: float) -> list[Segmen
     points = parse_gpx(file_content)
     segments = split_into_segments(points)
     clusters = cluster_segments(segments, avg_speed_kmh)
-    return clusters
+    return ClusteredRoute(clusters=clusters)
 
 
 def parse_gpx(file_content: bytes) -> list[RoutePoint]:
