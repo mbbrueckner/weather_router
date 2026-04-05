@@ -7,6 +7,8 @@ __author__ = "mbbrueckner"
 __version__ = "1.1.0"
 
 
+from datetime import datetime, timedelta
+
 from app.models import ClusteredRoute, RoutePoint, Segment, SegmentCluster
 
 from rdp import rdp
@@ -24,7 +26,7 @@ MIN_CLUSTER_DISTANCE_M = 750
 
 # --- Main Functions ---
 
-def get_route_clusters(file_content: bytes, avg_speed_kmh: float) -> ClusteredRoute:
+def get_clustered_route(file_content: bytes, avg_speed_kmh: float, start_time: datetime) -> ClusteredRoute:
     """Parse GPX file content and extract route clusters.
 
     Combines the main steps of parsing, segmenting, and clustering into a single function.
@@ -32,12 +34,13 @@ def get_route_clusters(file_content: bytes, avg_speed_kmh: float) -> ClusteredRo
     Args:
         file_content: Raw bytes of a GPX file.
         avg_speed_kmh: Rider's average speed in km/h, used for dynamic cluster sizing.
+        start_time: The start time for weather data retrieval.
     Returns:
         List of SegmentClusters representing straight portions of the route.
     """    
     points = parse_gpx(file_content)
     segments = split_into_segments(points)
-    clusters = cluster_segments(segments, avg_speed_kmh)
+    clusters = cluster_segments(segments, avg_speed_kmh, start_time)
     return ClusteredRoute(clusters=clusters)
 
 
@@ -64,7 +67,6 @@ def parse_gpx(file_content: bytes) -> list[RoutePoint]:
                         lat=p.latitude,
                         lon=p.longitude,
                         elevation_m=p.elevation,
-                        timestamp=p.time
                     )
                 )
     return _simplify(points)
@@ -96,6 +98,7 @@ def split_into_segments(points: list[RoutePoint]) -> list[Segment]:
 def cluster_segments(
     segments: list[Segment],
     avg_speed_kmh: float = 20.0,
+    start_time: datetime | None = None,
 ) -> list[SegmentCluster]:
     """Group consecutive segments into clusters based on bearing similarity and distance.
 
@@ -106,6 +109,8 @@ def cluster_segments(
     Args:
         segments: Ordered list of Segments to cluster.
         avg_speed_kmh: Rider's average speed in km/h, used to compute max cluster size.
+        start_time: Start time of the route. If provided, timestamps for representative
+            points are computed from cumulative distance and avg_speed_kmh.
 
     Returns:
         List of SegmentClusters representing straight portions of the route.
@@ -114,6 +119,7 @@ def cluster_segments(
     current_cluster_segments: list[Segment] = []
     current_cluster_length: float = 0.0
     current_cluster_bearing: float = 0.0
+    cumulative_time_s: float = 0.0
 
     for seg in segments:
         segment_length = seg.distance_m
@@ -144,13 +150,20 @@ def cluster_segments(
                 cos_sum = sum(math.cos(math.radians(s.bearing_deg)) for s in current_cluster_segments)
                 current_cluster_bearing = math.degrees(math.atan2(sin_sum, cos_sum)) % 360
             else:
-                clusters.append(_build_cluster(current_cluster_segments, current_cluster_bearing))
+                gradient = _cluster_gradient(current_cluster_segments)
+                cluster_speed_m_per_s = _estimate_speed(avg_speed_kmh, gradient) * 1000.0 / 3600.0
+                timestamp = _cluster_timestamp(start_time, cumulative_time_s, current_cluster_length, cluster_speed_m_per_s)
+                clusters.append(_build_cluster(current_cluster_segments, current_cluster_bearing, timestamp))
+                cumulative_time_s += current_cluster_length / cluster_speed_m_per_s
                 current_cluster_segments = [seg]
                 current_cluster_length = segment_length
                 current_cluster_bearing = segment_bearing
 
     if current_cluster_segments:
-        clusters.append(_build_cluster(current_cluster_segments, current_cluster_bearing))
+        gradient = _cluster_gradient(current_cluster_segments)
+        cluster_speed_m_per_s = _estimate_speed(avg_speed_kmh, gradient) * 1000.0 / 3600.0
+        timestamp = _cluster_timestamp(start_time, cumulative_time_s, current_cluster_length, cluster_speed_m_per_s)
+        clusters.append(_build_cluster(current_cluster_segments, current_cluster_bearing, timestamp))
 
     return clusters
 
@@ -284,7 +297,30 @@ def _bearing(p1: RoutePoint, p2: RoutePoint) -> float:
     return (math.degrees(math.atan2(y, x)) + 360) % 360
 
 
-def _build_cluster(segments: list[Segment], mean_bearing: float) -> SegmentCluster:
+def _cluster_timestamp(
+    start_time: datetime | None,
+    cumulative_time_s: float,
+    cluster_length_m: float,
+    speed_m_per_s: float,
+) -> datetime | None:
+    """Compute the timestamp for the midpoint of a cluster.
+
+    Args:
+        start_time: Route start time, or None if unavailable.
+        cumulative_time_s: Elapsed seconds from route start to the beginning of this cluster.
+        cluster_length_m: Total length of the cluster in meters.
+        speed_m_per_s: Gradient-adjusted rider speed for this cluster in m/s.
+
+    Returns:
+        Datetime of the cluster midpoint, or None if start_time is None.
+    """
+    if start_time is None or speed_m_per_s == 0.0:
+        return None
+    elapsed_s = cumulative_time_s + (cluster_length_m / 2.0) / speed_m_per_s
+    return start_time + timedelta(seconds=elapsed_s)
+
+
+def _build_cluster(segments: list[Segment], mean_bearing: float, timestamp: datetime | None = None) -> SegmentCluster:
     """Build a SegmentCluster from a list of segments.
 
     The representative point is the geographic midpoint of the middle segment.
@@ -292,6 +328,7 @@ def _build_cluster(segments: list[Segment], mean_bearing: float) -> SegmentClust
     Args:
         segments: Non-empty list of Segments belonging to this cluster.
         mean_bearing: Average bearing of the segments in degrees (0–360).
+        timestamp: Precomputed timestamp for the representative point.
 
     Returns:
         A SegmentCluster representing the group.
@@ -301,14 +338,6 @@ def _build_cluster(segments: list[Segment], mean_bearing: float) -> SegmentClust
 
     start_elev = middle_segment.start.elevation_m
     end_elev = middle_segment.end.elevation_m
-    start_ts = middle_segment.start.timestamp
-    end_ts = middle_segment.end.timestamp
-
-    timestamp = (
-        start_ts + (end_ts - start_ts) / 2
-        if (start_ts is not None and end_ts is not None)
-        else start_ts
-    )
 
     representative_point = RoutePoint(
         lat=(middle_segment.start.lat + middle_segment.end.lat) / 2,
