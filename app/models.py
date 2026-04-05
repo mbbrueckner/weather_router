@@ -77,3 +77,14 @@ class ClusteredRoute:
     @property
     def representative_points(self) -> list[RoutePoint]:
         return [c.representative_point for c in self.clusters]
+    
+@dataclass 
+class WeatherSnapshot:
+    coords: RoutePoint
+    timestamp: datetime
+    wind_speed_km_h : float
+    wind_direction_deg : float
+    gust_speed_km_h : float
+    precipitation_mm_h: float
+
+
