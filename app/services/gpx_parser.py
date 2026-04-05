@@ -24,6 +24,23 @@ MIN_CLUSTER_DISTANCE_M = 750
 
 # --- Main Functions ---
 
+def get_route_clusters(file_content: bytes, avg_speed_kmh: float) -> list[SegmentCluster]:
+    """Parse GPX file content and extract route clusters.
+
+    Combines the main steps of parsing, segmenting, and clustering into a single function.
+
+    Args:
+        file_content: Raw bytes of a GPX file.
+        avg_speed_kmh: Rider's average speed in km/h, used for dynamic cluster sizing.
+    Returns:
+        List of SegmentClusters representing straight portions of the route.
+    """    
+    points = parse_gpx(file_content)
+    segments = split_into_segments(points)
+    clusters = cluster_segments(segments, avg_speed_kmh)
+    return clusters
+
+
 def parse_gpx(file_content: bytes) -> list[RoutePoint]:
     """Parse a GPX file and extract an ordered list of descriptive RoutePoints.
 
