@@ -4,13 +4,16 @@ channels:
 dependencies:
   - python>=3.10
   - numpy
-  - pandas
+  - jupyter
+  - ipywidgets>=8.0
   - pip
   - pip:
     - gpxpy
     - openmeteo-requests
     - openmeteo-sdk
     - rdp
+    - folium
+    - voila
     - pytest
 variables:
 prefix:

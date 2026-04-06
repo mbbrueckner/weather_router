@@ -16,6 +16,17 @@ dependencies = [
     "openmeteo-sdk",
 ]
 
+[project.optional-dependencies]
+notebook = [
+    "jupyter",
+    "ipywidgets>=8.0",
+    "folium",
+    "voila",
+]
+dev = [
+    "pytest",
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*"]
