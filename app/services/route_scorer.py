@@ -15,8 +15,8 @@ MAX_HEADWIND_SPEED_KM_H = 60.0
 MAX_TAILWIND_SPEED_KM_H = 50.0
 MAX_CROSSWIND_SPEED_KM_H = 50.0
 
-MAX_GUST_SPEED_KM_H = 20.0
-MAX_GUST_DELTA_KM_H = 10.0
+MAX_GUST_SPEED_KM_H = 55.0
+MAX_GUST_DELTA_KM_H = 15.0
 
 MAX_PRECIPITATION_MM_H = 20.0
 
@@ -61,7 +61,7 @@ def score_segment(
     wind_score = dot * (wind_speed_km_h / max_wind_category_speed)
     wind_score = max(-1.0, min(1.0, wind_score))
 
-    gust_score = -min(gust_speed_km_h / MAX_GUST_SPEED_KM_H, 1.0)
+    gust_score = -min(gust_speed_km_h / MAX_GUST_SPEED_KM_H, 1.0) if gust_speed_km_h > wind_speed_km_h else 0.0
 
     rain_score = -min(precipitation_mm_h / MAX_PRECIPITATION_MM_H, 1.0)
 
