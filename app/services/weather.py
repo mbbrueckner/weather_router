@@ -68,6 +68,7 @@ def _build_params(
         "start_date": arrival_times[0].date().isoformat(),
         "end_date": arrival_times[-1].date().isoformat(),
         "models": "best_match",
+        "wind_speed_unit": "kmh",
     }
 
 
